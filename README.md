@@ -43,135 +43,168 @@ A production-grade, secure Core Banking System backend built with **Spring Boot 
 
 ---
 
-## 🏛️ System Architecture & Workflow Diagrams
+## 🔐 Security Architecture & Request Flow
 
-### 1. High-Level Architecture Overview
+The backend uses **stateless token-based authentication** powered by Spring Security 7 and JSON Web Tokens (JJWT). The server does not store user sessions in memory; instead, every client request carries a digitally signed cryptographic token.
+
+### 1. High-Level Request Pipeline
 
 ```mermaid
 flowchart TD
-    Client["Client (Web / Mobile / Teller UI)"]
-
-    subgraph Security["Spring Security & Filter Pipeline"]
-        CorsFilter["CorsFilter"]
-        JwtFilter["JwtAuthenticationFilter"]
-        AuthManager["AuthenticationManager & DaoAuthenticationProvider"]
+    Client["Client (React Web / Teller Terminal)"]
+    
+    subgraph SpringSecurity ["Spring Security 7 (Stateless Layer)"]
+        Cors["1. CorsFilter (CORS Header Check)"]
+        JwtFilter["2. JwtAuthenticationFilter (Extract & Verify)"]
+        JwtProvider["jwtService (HMAC-SHA384 & Claims)"]
+        SecCtx["SecurityContextHolder (Principal & Authorities)"]
+        AuthZ["3. AuthorizationFilter (Role Verification)"]
     end
-
-    subgraph API["REST Controller Layer"]
-        AuthCtrl["AuthController (/api/v1/auth)"]
-        CustCtrl["CustomerController (/api/v1/customers)"]
-        AccCtrl["AccountController (/api/v1/accounts)"]
-        TxCtrl["TransactionController (/api/v1/transactions)"]
-        AuditCtrl["AuditLogController (/api/v1/audit-logs)"]
+    
+    subgraph SpringMVC ["Spring Boot Application Layers"]
+        Dispatcher["DispatcherServlet"]
+        Controller["REST Controller (@RestController)"]
+        Service["Service Layer (@Service - Business Logic)"]
+        Repo["Data Access Layer (@Repository - JPA / Hibernate)"]
     end
-
-    subgraph ServiceLayer["Service Layer (Business Logic & Transactions)"]
-        AuthService["AuthServiceImpl"]
-        CustService["CustomerServiceImpl"]
-        AccService["AccountServiceImpl"]
-        TxService["TransactionServiceImpl"]
-        AuditAspect["@Audited Aspect (AOP Logging)"]
+    
+    subgraph Database ["Persistence Layer"]
+        Postgres[("PostgreSQL Database")]
     end
-
-    subgraph Persistence["Data Persistence Layer"]
-        Repo["Spring Data JPA Repositories"]
-        Flyway["Flyway Migration (V1__init_schema.sql)"]
-    end
-
-    DB[("PostgreSQL Database (Docker)")]
-
-    Client -->|HTTPS / REST Requests| CorsFilter
-    CorsFilter --> JwtFilter
-    JwtFilter -->|Extract & Validate Token| AuthManager
-    AuthManager --> API
-    API --> ServiceLayer
-    ServiceLayer -.->|Audit Event Interception| AuditAspect
-    AuditAspect --> Repo
-    ServiceLayer --> Repo
-    Flyway -->|Schema Verification| DB
-    Repo <-->|Hibernate 7 / HikariCP| DB
+    
+    Client -->|"HTTP Request + Header: Authorization: Bearer <token>"| Cors
+    Cors --> JwtFilter
+    JwtFilter <-->|"Validate Signature & Claims"| JwtProvider
+    JwtFilter -->|"Set Authentication"| SecCtx
+    JwtFilter --> AuthZ
+    AuthZ -->|"Authorized"| Dispatcher
+    AuthZ -.->|"Unauthorized (401) / Forbidden (403)"| Client
+    Dispatcher --> Controller
+    Controller --> Service
+    Service --> Repo
+    Repo <--> Postgres
+    Controller -->|"Structured JSON Response"| Client
 ```
 
 ---
 
-### 2. Authentication & JWT Token Issuance Flow
+### 2. User Authentication Flow (Login & Token Issuance)
+
+When a user signs in, credentials are submitted, verified with BCrypt against the PostgreSQL database, and a cryptographically signed JWT is returned to the client:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Client / Teller
+    actor Client as Client (React Web / Teller Terminal)
     participant AuthCtrl as AuthController (/api/v1/auth/login)
+    participant AuthSvc as AuthServiceImpl
     participant AuthMgr as AuthenticationManager
     participant DaoProv as DaoAuthenticationProvider
     participant UserDetails as CustomUserDetailsService
     participant DB as PostgreSQL Database
-    participant JwtService as JwtService
+    participant JwtProv as jwtService
 
-    User->>AuthCtrl: POST /api/v1/auth/login { identifier, password }
-    AuthCtrl->>AuthMgr: authenticate(UsernamePasswordAuthenticationToken)
+    Client->>AuthCtrl: POST /api/v1/auth/login { identifier, password }
+    AuthCtrl->>AuthSvc: login(loginRequest)
+    AuthSvc->>AuthMgr: authenticate(UsernamePasswordAuthenticationToken)
     AuthMgr->>DaoProv: authenticate(authentication)
     DaoProv->>UserDetails: loadUserByUsername(identifier)
-    UserDetails->>DB: Query user by username, email or phone
-    DB-->>UserDetails: User Entity (Hashed Password, Role)
-    UserDetails-->>DaoProv: UserPrincipal (UserDetails)
-    DaoProv->>DaoProv: BCrypt.checkpw(rawPassword, hashedPassword)
-
-    alt Invalid Credentials
-        DaoProv-->>User: 401 Unauthorized (Invalid username or password)
+    UserDetails->>DB: SELECT user WHERE username=? OR email=? OR phone_number=?
+    DB-->>UserDetails: User Entity (id, username, email, passwordHash, role)
+    UserDetails-->>DaoProv: UserPrincipal (UserDetails with ROLE_ADMIN / ROLE_USER)
+    DaoProv->>DaoProv: BCrypt.checkpw(rawPassword, passwordHash)
+    
+    alt Password Mismatch / User Not Found
+        DaoProv-->>Client: 401 Unauthorized / BadCredentialsException
     else Credentials Match
         DaoProv-->>AuthMgr: Authentication (Authenticated = true)
-        AuthMgr-->>AuthCtrl: Authenticated Principal
-        AuthCtrl->>JwtService: generateToken(userDetails)
-        Note over JwtService: HMAC-SHA384 Signature<br/>Claims: Subject, Role, Expiration
-        JwtService-->>AuthCtrl: Signed JWT Bearer Token
-        AuthCtrl-->>User: 200 OK { token, tokenType: "Bearer", username, role }
+        AuthMgr-->>AuthSvc: Authentication object
+        AuthSvc->>JwtProv: generateToken(userDetails)
+        Note right of JwtProv: Assembles JWT Token:<br/>- Header: { alg: HS384, typ: JWT }<br/>- Payload: { sub: identifier, role: [...], exp: timestamp }<br/>- Signature: HMAC-SHA384(header.payload, secretKey)
+        JwtProv-->>AuthSvc: Signed JWT String
+        AuthSvc-->>AuthCtrl: AuthResponse(token, tokenType="Bearer")
+        AuthCtrl-->>Client: 200 OK + { token: "eyJhbGci...", tokenType: "Bearer", username, role }
+        Note over Client: Stores Bearer token in localStorage for subsequent API requests
     end
 ```
 
 ---
 
-### 3. Core Banking Fund Transfer & Ledger Transaction Flow
+### 3. Authenticated Request Flow (Accessing Protected Endpoints)
+
+For subsequent requests (e.g. depositing cash, withdrawing funds, creating accounts, transferring balances), the client sends the token in the `Authorization` header:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Teller as Teller / Bank Officer
-    participant TxCtrl as AccountController (/api/v1/accounts/transfer)
-    participant TxService as AccountServiceImpl / TransactionService
-    participant AccRepo as AccountRepository
-    participant TxRepo as TransactionRepository
-    participant AuditLog as AuditLogService
+    actor Client as Client (React Web / Teller Terminal)
+    participant FilterChain as Spring Security Filter Chain
+    participant JwtFilter as JwtAuthenticationFilter
+    participant JwtProv as jwtService
+    participant UserDetails as CustomUserDetailsService
+    participant SecContext as SecurityContextHolder
+    participant Dispatcher as DispatcherServlet
+    participant Controller as REST Controller (e.g. AccountController)
+    participant Service as Service Layer (e.g. AccountServiceImpl)
+    participant Repo as JPA Repository (AccountRepository)
     participant DB as PostgreSQL Database
 
-    Teller->>TxCtrl: POST /api/v1/accounts/transfer { sourceAccount, targetAccount, amount }
-    TxCtrl->>TxService: transfer(request)
-    Note over TxService: @Transactional (Atomic Boundary)
-
-    TxService->>AccRepo: findByAccountNumber(sourceAccount)
-    AccRepo->>DB: SELECT * FROM accounts WHERE account_number = ?
-    DB-->>TxService: Source Account Entity
-
-    TxService->>AccRepo: findByAccountNumber(targetAccount)
-    AccRepo->>DB: SELECT * FROM accounts WHERE account_number = ?
-    DB-->>TxService: Target Account Entity
-
-    alt Insufficient Balance / Frozen Account
-        TxService-->>Teller: 400 Bad Request / InsufficientBalanceException
-    else Balance & Account Status Valid
-        TxService->>TxService: sourceBalance -= amount
-        TxService->>TxService: targetBalance += amount
-        TxService->>AccRepo: save(sourceAccount) & save(targetAccount)
-        TxService->>TxRepo: save(bankTransactionRecord)
-        TxService->>AuditLog: logEvent("TRANSFER", "Account", sourceAccount, "Transferred $amount")
-        DB-->>TxService: Commit Transaction (Atomicity Guaranteed)
-        TxService-->>TxCtrl: TransactionResponse
-        TxCtrl-->>Teller: 200 OK { transactionId, balanceAfter, timestamp }
+    Client->>FilterChain: HTTP Request (e.g. POST /api/v1/accounts/transfer)<br/>Header: Authorization: Bearer <jwt_token>
+    FilterChain->>JwtFilter: doFilterInternal(request, response, filterChain)
+    JwtFilter->>JwtFilter: extractToken() -> "eyJhbGci..."
+    
+    alt Token Missing or Expired/Invalid
+        JwtFilter-->>Client: 401 Unauthorized (via AuthenticationEntryPoint)
+    else Token Signature & Expiry Valid
+        JwtFilter->>JwtProv: validateToken(jwt)
+        JwtProv-->>JwtFilter: true
+        JwtFilter->>JwtProv: extractUsername(jwt)
+        JwtProv-->>JwtFilter: username
+        JwtFilter->>UserDetails: loadUserByUsername(username)
+        UserDetails-->>JwtFilter: UserPrincipal (Roles: [ROLE_ADMIN, ...])
+        JwtFilter->>SecContext: setAuthentication(UsernamePasswordAuthenticationToken)
+        JwtFilter->>FilterChain: filterChain.doFilter(request, response)
+        
+        alt Insufficient Role Permissions (e.g. ROLE_USER accessing ADMIN audit logs)
+            FilterChain-->>Client: 403 Forbidden (via AccessDeniedHandler)
+        else Role Authorized
+            FilterChain->>Dispatcher: Forward to DispatcherServlet
+            Dispatcher->>Controller: Route to target @PostMapping / @GetMapping method
+            Controller->>Service: Execute core banking business logic (transfer, deposit, withdraw)
+            Service->>Repo: Data access operations (save / find)
+            Repo->>DB: Execute SQL Queries (INSERT, UPDATE, SELECT)
+            DB-->>Repo: SQL Results
+            Repo-->>Service: Managed Entity
+            Service-->>Controller: Response DTO
+            Controller-->>Client: 200 OK / 201 Created (JSON Response)
+        end
     end
 ```
 
 ---
 
-### 4. Entity-Relationship Diagram (Database Schema)
+### 4. End-to-End Workflow Summary
+
+1. **User Authentication (Login)**:
+   - **Client Request**: The client application (React Web or Teller Terminal) sends `identifier` (username, email, or phone) and `password` via `POST /api/v1/auth/login`.
+   - **Credential Verification**: `AuthenticationManager` delegates to `DaoAuthenticationProvider`, which fetches user credentials through `CustomUserDetailsService` and validates the password against the stored database hash using `BCrypt`.
+   - **Token Generation**: Upon successful authentication, `jwtService` crafts a cryptographically signed **JWT Access Token** embedded with the subject, role (`ROLE_ADMIN`, `ROLE_USER`), issue timestamp, and expiration time, digitally signed using HMAC-SHA384.
+   - **Token Storage**: The server returns an `AuthResponse` object containing the `token`. The client securely stores the token in `localStorage` to authenticate subsequent requests.
+
+2. **Authenticated Client Request Execution**:
+   - **Header Attachment**: For every subsequent protected API call (e.g., managing customer KYC, opening accounts, executing deposits/withdrawals/transfers), the client attaches the HTTP header `Authorization: Bearer <token>`.
+   - **Filter Interception**: `JwtAuthenticationFilter` intercepts the request before it reaches any controller:
+     - **Missing or Expired Token**: Immediately rejected with **401 Unauthorized** via custom `AuthenticationEntryPoint`.
+     - **Valid Token**: Extracts user details, constructs a `UsernamePasswordAuthenticationToken`, and injects it into `SecurityContextHolder`.
+   - **Role-Based Authorization (RBAC)**: Spring Security verifies endpoint permissions:
+     - **Insufficient Privileges** (e.g., a `ROLE_USER` attempting to delete a customer profile or inspect system audit logs): Immediately rejected with **403 Forbidden**.
+     - **Authorized**: The request is routed through the Spring MVC pipeline:
+       `DispatcherServlet` &rarr; `@RestController` &rarr; `@Service` (Business Logic & Atomic `@Transactional`) &rarr; `@Repository` (JPA / Hibernate) &rarr; `PostgreSQL Database`.
+   - **Structured Response**: The business logic executes, ledger updates are committed, and the controller returns structured JSON with HTTP status code `200 OK` or `201 Created` back to the client.
+
+---
+
+### 5. Entity-Relationship Diagram (Database Schema)
 
 ```mermaid
 erDiagram
