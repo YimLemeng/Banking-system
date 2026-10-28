@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: ${DB_NAME:-banking_system_db}
       POSTGRES_USER: ${DB_USER:-banking_system}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,7 +33,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8081}:8080"
     networks:
       - banking_network
 
