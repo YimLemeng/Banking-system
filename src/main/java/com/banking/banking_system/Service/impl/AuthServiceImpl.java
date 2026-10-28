@@ -1,6 +1,7 @@
 package com.banking.banking_system.Service.impl;
 
 import com.banking.banking_system.Dto.auth.AuthResponse;
+import com.banking.banking_system.Dto.auth.ChangePasswordRequest;
 import com.banking.banking_system.Dto.auth.LoginRequest;
 import com.banking.banking_system.Dto.auth.RegisterRequest;
 import com.banking.banking_system.Entity.Enum.Role;
@@ -15,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -96,5 +98,34 @@ public class AuthServiceImpl implements AuthService {
                 .email(userPrincipal.getEmail())
                 .role(userPrincipal.getRole().name())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(ChangePasswordRequest request) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
+            throw new IllegalArgumentException("User must be authenticated to change password");
+        }
+
+        String identifier = authentication.getName();
+        User user = userRepository.findByIdentifier(identifier)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with identifier: " + identifier));
+
+        if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
+            throw new IllegalArgumentException("New password and confirm new password do not match");
+        }
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new IllegalArgumentException("Current password does not match");
+        }
+
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            throw new IllegalArgumentException("New password cannot be the same as the current password");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+        log.info("Password updated successfully for user: {}", identifier);
     }
 }
