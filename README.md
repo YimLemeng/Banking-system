@@ -43,6 +43,206 @@ A production-grade, secure Core Banking System backend built with **Spring Boot 
 
 ---
 
+## 🏛️ System Architecture & Workflow Diagrams
+
+### 1. High-Level Architecture Overview
+
+```mermaid
+flowchart TD
+    Client["Client (Web / Mobile / Teller UI)"]
+
+    subgraph Security["Spring Security & Filter Pipeline"]
+        CorsFilter["CorsFilter"]
+        JwtFilter["JwtAuthenticationFilter"]
+        AuthManager["AuthenticationManager & DaoAuthenticationProvider"]
+    end
+
+    subgraph API["REST Controller Layer"]
+        AuthCtrl["AuthController (/api/v1/auth)"]
+        CustCtrl["CustomerController (/api/v1/customers)"]
+        AccCtrl["AccountController (/api/v1/accounts)"]
+        TxCtrl["TransactionController (/api/v1/transactions)"]
+        AuditCtrl["AuditLogController (/api/v1/audit-logs)"]
+    end
+
+    subgraph ServiceLayer["Service Layer (Business Logic & Transactions)"]
+        AuthService["AuthServiceImpl"]
+        CustService["CustomerServiceImpl"]
+        AccService["AccountServiceImpl"]
+        TxService["TransactionServiceImpl"]
+        AuditAspect["@Audited Aspect (AOP Logging)"]
+    end
+
+    subgraph Persistence["Data Persistence Layer"]
+        Repo["Spring Data JPA Repositories"]
+        Flyway["Flyway Migration (V1__init_schema.sql)"]
+    end
+
+    DB[("PostgreSQL Database (Docker)")]
+
+    Client -->|HTTPS / REST Requests| CorsFilter
+    CorsFilter --> JwtFilter
+    JwtFilter -->|Extract & Validate Token| AuthManager
+    AuthManager --> API
+    API --> ServiceLayer
+    ServiceLayer -.->|Audit Event Interception| AuditAspect
+    AuditAspect --> Repo
+    ServiceLayer --> Repo
+    Flyway -->|Schema Verification| DB
+    Repo <-->|Hibernate 7 / HikariCP| DB
+```
+
+---
+
+### 2. Authentication & JWT Token Issuance Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Client / Teller
+    participant AuthCtrl as AuthController (/api/v1/auth/login)
+    participant AuthMgr as AuthenticationManager
+    participant DaoProv as DaoAuthenticationProvider
+    participant UserDetails as CustomUserDetailsService
+    participant DB as PostgreSQL Database
+    participant JwtService as JwtService
+
+    User->>AuthCtrl: POST /api/v1/auth/login { identifier, password }
+    AuthCtrl->>AuthMgr: authenticate(UsernamePasswordAuthenticationToken)
+    AuthMgr->>DaoProv: authenticate(authentication)
+    DaoProv->>UserDetails: loadUserByUsername(identifier)
+    UserDetails->>DB: Query user by username, email or phone
+    DB-->>UserDetails: User Entity (Hashed Password, Role)
+    UserDetails-->>DaoProv: UserPrincipal (UserDetails)
+    DaoProv->>DaoProv: BCrypt.checkpw(rawPassword, hashedPassword)
+
+    alt Invalid Credentials
+        DaoProv-->>User: 401 Unauthorized (Invalid username or password)
+    else Credentials Match
+        DaoProv-->>AuthMgr: Authentication (Authenticated = true)
+        AuthMgr-->>AuthCtrl: Authenticated Principal
+        AuthCtrl->>JwtService: generateToken(userDetails)
+        Note over JwtService: HMAC-SHA384 Signature<br/>Claims: Subject, Role, Expiration
+        JwtService-->>AuthCtrl: Signed JWT Bearer Token
+        AuthCtrl-->>User: 200 OK { token, tokenType: "Bearer", username, role }
+    end
+```
+
+---
+
+### 3. Core Banking Fund Transfer & Ledger Transaction Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Teller as Teller / Bank Officer
+    participant TxCtrl as AccountController (/api/v1/accounts/transfer)
+    participant TxService as AccountServiceImpl / TransactionService
+    participant AccRepo as AccountRepository
+    participant TxRepo as TransactionRepository
+    participant AuditLog as AuditLogService
+    participant DB as PostgreSQL Database
+
+    Teller->>TxCtrl: POST /api/v1/accounts/transfer { sourceAccount, targetAccount, amount }
+    TxCtrl->>TxService: transfer(request)
+    Note over TxService: @Transactional (Atomic Boundary)
+
+    TxService->>AccRepo: findByAccountNumber(sourceAccount)
+    AccRepo->>DB: SELECT * FROM accounts WHERE account_number = ?
+    DB-->>TxService: Source Account Entity
+
+    TxService->>AccRepo: findByAccountNumber(targetAccount)
+    AccRepo->>DB: SELECT * FROM accounts WHERE account_number = ?
+    DB-->>TxService: Target Account Entity
+
+    alt Insufficient Balance / Frozen Account
+        TxService-->>Teller: 400 Bad Request / InsufficientBalanceException
+    else Balance & Account Status Valid
+        TxService->>TxService: sourceBalance -= amount
+        TxService->>TxService: targetBalance += amount
+        TxService->>AccRepo: save(sourceAccount) & save(targetAccount)
+        TxService->>TxRepo: save(bankTransactionRecord)
+        TxService->>AuditLog: logEvent("TRANSFER", "Account", sourceAccount, "Transferred $amount")
+        DB-->>TxService: Commit Transaction (Atomicity Guaranteed)
+        TxService-->>TxCtrl: TransactionResponse
+        TxCtrl-->>Teller: 200 OK { transactionId, balanceAfter, timestamp }
+    end
+```
+
+---
+
+### 4. Entity-Relationship Diagram (Database Schema)
+
+```mermaid
+erDiagram
+    USERS ||--o{ CUSTOMERS : "registers"
+    USERS ||--o{ AUDIT_LOGS : "triggers"
+    CUSTOMERS ||--o{ ACCOUNTS : "owns"
+    ACCOUNTS ||--o{ BANK_TRANSACTIONS : "source account"
+    ACCOUNTS ||--o{ BANK_TRANSACTIONS : "target account"
+
+    USERS {
+        bigint id PK
+        varchar username UK
+        varchar email UK
+        varchar phone_number UK
+        varchar password
+        varchar role
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    CUSTOMERS {
+        bigint id PK
+        varchar first_name
+        varchar last_name
+        varchar email UK
+        varchar phone_number
+        varchar national_or_passport
+        varchar address
+        bigint user_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    ACCOUNTS {
+        bigint id PK
+        varchar account_number UK
+        varchar account_type
+        decimal balance
+        varchar status
+        bigint customer_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    BANK_TRANSACTIONS {
+        bigint id PK
+        varchar transaction_id UK
+        varchar type
+        decimal amount
+        decimal balance_after
+        bigint account_id FK
+        bigint target_account_id FK
+        varchar description
+        timestamp timestamp
+    }
+
+    AUDIT_LOGS {
+        bigint id PK
+        varchar username
+        varchar action
+        varchar resource
+        varchar resource_id
+        varchar ip_address
+        varchar status
+        bigint execution_time_ms
+        timestamp created_at
+    }
+```
+
+---
+
 ## 🐳 Docker Quickstart (Recommended)
 
 Run both the Database (PostgreSQL) and the Backend API together with a single command:
