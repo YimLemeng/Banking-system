@@ -9,6 +9,7 @@ import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +22,9 @@ public class OpenApiConfig {
     @Bean
     public OpenAPI bankingOpenAPI() {
         return new OpenAPI()
+                .servers(List.of(
+                        new Server().url("/").description("Current Server (HTTPS / HTTP)")
+                ))
                 .info(new Info()
                         .title("Banking System REST API")
                         .description("Production-grade Banking REST API with Spring Boot, PostgreSQL, JWT Authentication, and Role-based Authorization.")
