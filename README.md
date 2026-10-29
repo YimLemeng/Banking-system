@@ -3,7 +3,7 @@
 A production-grade, secure Core Banking System backend built with **Spring Boot 4**, **Java 21**, **PostgreSQL**, **Flyway**, and **Spring Security (JWT)**.
 
 > 🌐 **Live Web Client (UI)**: [https://banking-system.yimlemeng.workers.dev](https://banking-system.yimlemeng.workers.dev)  
-> 📚 **Live API Swagger Documentation**: [https://lemeng-banking-api.duckdns.org/swagger-ui.html](https://lemeng-banking-api.duckdns.org/swagger-ui.html)  
+> 🏛️ **Frontend UI Repository**: [https://github.com/YimLemeng/Banking-system-UI](https://github.com/YimLemeng/Banking-system-UI)  
 > 👤 **Test Accounts**: `admin` / `admin123` (Admin) • `teller` / `teller123` (Teller)
 
 ---
