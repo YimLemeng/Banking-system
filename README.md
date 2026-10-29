@@ -346,6 +346,17 @@ Once the application is running, visit:
 
 ---
 
+## 👤 Test / Demo Credentials
+
+Use these pre-configured user credentials for testing authentication and RBAC permissions in Swagger UI, Postman, or Frontend Client:
+
+| Role | Username / Identifier | Password | Authorities & Access Level |
+|---|---|---|---|
+| **System Administrator** | `admin` | `admin123` | `ROLE_ADMIN` — Full system access: Customer KYC, Accounts, Transactions, System Users, Audit Trail |
+| **Bank Teller Officer** | `teller` | `teller123` | `ROLE_USER` — Branch Operations: Customer KYC, Deposit, Withdraw, Transfer, Account Statements |
+
+---
+
 ## 🔐 Core Endpoints Overview
 
 | Method | Endpoint | Description | Access |
