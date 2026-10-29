@@ -33,7 +33,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
     ports:
-      - "${APP_PORT:-8081}:8080"
+      - "127.0.0.1:${APP_PORT:-8081}:8080"
     networks:
       - banking_network
 
