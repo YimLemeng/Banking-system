@@ -348,9 +348,8 @@ The application starts on port `8080`.
 
 ## 📚 API Documentation
 
-Interactive OpenAPI / Swagger UI documentation is available at:
-- **Production Server**: [https://lemeng-banking-api.duckdns.org/swagger-ui.html](https://lemeng-banking-api.duckdns.org/swagger-ui.html)
-- **Localhost Development**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+Once the application is running locally, visit:
+- **Swagger UI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
 
 ---
 
