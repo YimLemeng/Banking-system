@@ -43,6 +43,7 @@ logs/
 .env.local
 *.env
 application-local.yaml
+*.docx
 application-local.yml
 **/application-local.yaml
 **/application-local.yml
