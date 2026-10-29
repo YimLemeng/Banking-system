@@ -3,6 +3,7 @@
 A production-grade, secure Core Banking System backend built with **Spring Boot 4**, **Java 21**, **PostgreSQL**, **Flyway**, and **Spring Security (JWT)**.
 
 > 🌐 **Live Web Client (UI)**: [https://banking-system.yimlemeng.workers.dev](https://banking-system.yimlemeng.workers.dev)  
+> 📚 **API Swagger Documentation**: [https://lemeng-banking-api.duckdns.org/swagger-ui.html](https://lemeng-banking-api.duckdns.org/swagger-ui.html)  
 > 🏛️ **Frontend UI Repository**: [https://github.com/YimLemeng/Banking-system-UI](https://github.com/YimLemeng/Banking-system-UI)  
 > 👤 **Test Accounts**: `admin` / `admin123` (Admin) • `teller` / `teller123` (Teller)
 
@@ -347,19 +348,9 @@ The application starts on port `8080`.
 
 ## 📚 API Documentation
 
-Once the application is running, visit:
-- **Swagger UI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
-
----
-
-## 👤 Test / Demo Credentials
-
-Use these pre-configured user credentials for testing authentication and RBAC permissions in Swagger UI, Postman, or Frontend Client:
-
-| Role | Username / Identifier | Password | Authorities & Access Level |
-|---|---|---|---|
-| **System Administrator** | `admin` | `admin123` | `ROLE_ADMIN` — Full system access: Customer KYC, Accounts, Transactions, System Users, Audit Trail |
-| **Bank Teller Officer** | `teller` | `teller123` | `ROLE_USER` — Branch Operations: Customer KYC, Deposit, Withdraw, Transfer, Account Statements |
+Interactive OpenAPI / Swagger UI documentation is available at:
+- **Production Server**: [https://lemeng-banking-api.duckdns.org/swagger-ui.html](https://lemeng-banking-api.duckdns.org/swagger-ui.html)
+- **Localhost Development**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
 
 ---
 
